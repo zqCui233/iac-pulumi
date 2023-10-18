@@ -29,13 +29,13 @@ public class CIDRSubnetCalculator {
 
         // 计算每个子网的地址范围
         for (int i = 0; i < subnetCount; i++) {
-            int subnetSize = (int) Math.pow(2, subnetBitCount - 4);
+            int subnetSize = (int) Math.pow(2, subnetBitCount - 8);
             int step = subnetSize * (i + 1);
 
             Long subnetAddress = ip2Long(originalNetworkAddress) + step;
             String broadcastAddress = String.valueOf(ip2Long(originalNetworkAddress) + step + subnetSize - 1);
 
-            String subnetCIDR = long2IP(subnetAddress) + "/" + (32 - subnetBitCount + 4);
+            String subnetCIDR = long2IP(subnetAddress) + "/" + (32 - subnetBitCount + 8);
             res[i] = subnetCIDR;
         }
 
