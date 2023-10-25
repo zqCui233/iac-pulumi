@@ -1,7 +1,7 @@
-encryptionsalt: v1:C27ZFZ2aQHs=:v1:0eqhWKT3ZFrCqzOo:9DpiWeZ3F9TdZwUm1OdzVX5F2ck23w==
+encryptionsalt: v1:sCpom6J1hWM=:v1:8Kryl8vLNkaBHutb:T/Lqpms5BA/isHDE0D5tnPWJTFAhow==
 config:
-#  aws:profile: dev
+  #  aws:profile: demo
   aws:region: us-east-1
   vpcCidr: "10.0.0.0/16"
-  amiId: "ami-07255cd0cedab3a63"
+  amiId: "ami-0feeeff8722b87f29"
   pubKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDhg/UEg4wACDnoqmDa8L7DIRwma7FeM0zZ49/UoQ0RL9M2NdncVHJ8C/n0lgZ7okvuYbQTiQoDpvxbkTZ1JbrNQKYGLvw5htADnNqHLg5+iMTJMEC7Ci8KdUjAdEFuwABV1JxogBcWQ2rFrEjtjOUFF5rGvj+/yUe0eFppYG6YqdkU5oFRtOB89+pikzN1sj2srJGaklYVRpno40jRC2bWpNkORWS8UWg1WuraeOYz/TSIWms/4H5FLnYZV4K3hHKHUW9gLJfxzRD76f1R73W3az8DEPHpPYq1L+RhqQbF64UhRDLML9CvAc0yYeIGESPF3lvgQLRKQJerwW1YyptSqLhcUOPkTHOnbtZZLz4ixPtEu32RMhVSr4XTWTqhAkpe2CEPs/OGI1jGvKckg+iKNQZuAZV11xQumgCTGOt7/Uvf22vZRUcFwVXkYl+16zZmQqZhQNSGYhl+mRPB0cBIQ8wkGzCKNTkVI3AYiU5Cn1RgaEDPjUxiL7LORg3uIQ0= cuizhiqing@cuizhiqingdeMacBook-Pro.local"
