@@ -4,12 +4,16 @@ import com.pulumi.Context;
 import com.pulumi.Pulumi;
 import com.pulumi.aws.AwsFunctions;
 import com.pulumi.aws.ec2.*;
-import com.pulumi.aws.ec2.inputs.*;
+import com.pulumi.aws.ec2.inputs.InstanceRootBlockDeviceArgs;
+import com.pulumi.aws.ec2.inputs.RouteTableRouteArgs;
+import com.pulumi.aws.ec2.inputs.SecurityGroupEgressArgs;
+import com.pulumi.aws.ec2.inputs.SecurityGroupIngressArgs;
 import com.pulumi.aws.inputs.GetAvailabilityZonesArgs;
+import com.pulumi.aws.rds.InstanceArgs;
+import com.pulumi.aws.rds.*;
+import com.pulumi.aws.rds.inputs.ParameterGroupParameterArgs;
 import com.pulumi.core.Output;
 
-
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -103,19 +107,36 @@ public class App {
                 .securityGroupId(applicationSecurityGroup.id())
                 .build());
 
-        Output<List<String>> sgIds = applicationSecurityGroup.id().applyValue(id -> {
-            List<String> ids = new ArrayList<>();
-            ids.add(id);
-            return ids;
-        });
+        var databaseSecurityGroup = new SecurityGroup("dbSG", SecurityGroupArgs.builder()
+                .description("Enable access to RDS Instance")
+                .namePrefix("database-")
+                .vpcId(main.id())
+                .tags(Map.of("Name", "Database Security Group"))
+                .build());
+
+        var allowWebapp = new SecurityGroupRule("allowWebapp", SecurityGroupRuleArgs.builder()
+                .type("ingress")
+                .fromPort(3306)
+                .toPort(3306)
+                .protocol("tcp")
+//                .cidrBlocks("0.0.0.0/0")
+                .sourceSecurityGroupId(applicationSecurityGroup.id())
+                .securityGroupId(databaseSecurityGroup.id())
+                .build());
 
         var ec2Key = new KeyPair("ec2Key", KeyPairArgs.builder()
                 .publicKey(config.require("pubKey"))
                 .build());
 
+        var dbParameterGroup = new ParameterGroup("db-pg", ParameterGroupArgs.builder()
+                .family("mysql8.0")
+                .build());
+
         numOfAz.applyValue(n -> {
             if (n >= 3) num[0] = 3;
-            else num[0] = 2;
+            else num[0] = n;
+
+            Subnet[] privateSubnet = new Subnet[num[0]];
 
             for (int i = 0; i < num[0]; i++, index[0]++) {
                 int finalIndex = index[0];
@@ -131,7 +152,7 @@ public class App {
                         .routeTableId(publicRouteTable.id())
                         .build());
 
-                var privateSubnet = new Subnet("Private Subnet " + (i + 1), new SubnetArgs.Builder()
+                privateSubnet[i] = new Subnet("Private Subnet " + (i + 1), new SubnetArgs.Builder()
                         .vpcId(main.id())
                         .cidrBlock(cidrs[i + num[0]])
                         .availabilityZone(available.applyValue(getAvailabilityZonesResult -> getAvailabilityZonesResult.names().get(finalIndex)))
@@ -139,23 +160,73 @@ public class App {
                         .build());
 
                 var privateRouteTableAssociation = new RouteTableAssociation("PrivateRouteTableAssoc" + (i + 1), RouteTableAssociationArgs.builder()
-                        .subnetId(privateSubnet.id())
+                        .subnetId(privateSubnet[i].id())
                         .routeTableId(privateRouteTable.id())
                         .build());
 
                 if (i == num[0] - 1) {
-                    var webapp = new Instance("webapp", InstanceArgs.builder()
+                    Output<List<String>> ids = null;
+                    switch (num[0]) {
+                        case 3: {
+                            ids = Output.all(privateSubnet[0].id(), privateSubnet[1].id(), privateSubnet[2].id());
+                            break;
+                        }
+                        case 2: {
+                            ids = Output.all(privateSubnet[0].id(), privateSubnet[1].id());
+                            break;
+                        }
+                        case 1: {
+                            ids = Output.all(privateSubnet[0].id());
+                            break;
+                        }
+                        default: {
+                            System.exit(-1);
+                        }
+                    }
+                    
+                    var dbSubnetGroup = new SubnetGroup("db-sg", SubnetGroupArgs.builder()
+                            .subnetIds(ids)
+                            .tags(Map.of("Name", "My DB subnet group"))
+                            .build());
+
+                    var webappdb = new com.pulumi.aws.rds.Instance("webappdb", InstanceArgs.builder()
+                            .engine("mysql")
+                            .engineVersion("8.0.32")
+                            .instanceClass("db.t3.micro")
+                            .allocatedStorage(20)
+                            .multiAz(false)
+                            .dbName("webappdb")
+                            .username("csye6225")
+                            .password("PASSword123!")
+                            .publiclyAccessible(false)
+                            .vpcSecurityGroupIds(Output.all(databaseSecurityGroup.id()))
+                            .dbSubnetGroupName(dbSubnetGroup.name())
+                            .parameterGroupName(dbParameterGroup.name())
+                            .skipFinalSnapshot(true)
+                            .build());
+
+                    var userData = Output.tuple(webappdb.username(), webappdb.password(), webappdb.endpoint(), webappdb.dbName())
+                            .applyValue(t -> String.format(
+                                    "#!/bin/bash\n" +
+                                    "echo \"setup RDS endpoint\"\n" +
+                                    "sed -i \"s|username=.*|username=%s|g\" /opt/csye6225/application.properties\n" +
+                                    "sed -i \"s|password=.*|password=%s|g\" /opt/csye6225/application.properties\n" +
+                                    "sed -i \"s|url=.*|url=jdbc:mysql://%s/%s?autoReconnect=true\\&useSSL=false\\&createDatabaseIfNotExist=true|g\" /opt/csye6225/application.properties\n" +
+                                    "echo \"End of UserData\"\n", t.t1, t.t2.get(), t.t3, t.t4));
+
+                    var webapp = new com.pulumi.aws.ec2.Instance("webapp", com.pulumi.aws.ec2.InstanceArgs.builder()
                             .ami(config.require("amiId"))
                             .associatePublicIpAddress(true)
                             .subnetId(publicSubnet.id())
                             .instanceType("t2.micro")
-                            .vpcSecurityGroupIds(sgIds)
+                            .vpcSecurityGroupIds(Output.all(applicationSecurityGroup.id()))
                             .rootBlockDevice(InstanceRootBlockDeviceArgs.builder()
                                     .deleteOnTermination(true)
                                     .volumeSize(25)
                                     .volumeType("gp2")
                                     .build())
                             .keyName(ec2Key.keyName())
+                            .userData(userData)
                             .tags(Map.of("Name", "webapp"))
                             .build());
                 }
