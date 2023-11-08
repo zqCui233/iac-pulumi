@@ -8,14 +8,18 @@ import com.pulumi.aws.ec2.inputs.InstanceRootBlockDeviceArgs;
 import com.pulumi.aws.ec2.inputs.RouteTableRouteArgs;
 import com.pulumi.aws.ec2.inputs.SecurityGroupEgressArgs;
 import com.pulumi.aws.ec2.inputs.SecurityGroupIngressArgs;
+import com.pulumi.aws.iam.*;
 import com.pulumi.aws.inputs.GetAvailabilityZonesArgs;
 import com.pulumi.aws.rds.InstanceArgs;
 import com.pulumi.aws.rds.*;
-import com.pulumi.aws.rds.inputs.ParameterGroupParameterArgs;
+import com.pulumi.aws.route53.RecordArgs;
 import com.pulumi.core.Output;
+import com.pulumi.aws.route53.Record;
 
 import java.util.List;
 import java.util.Map;
+
+import static com.pulumi.codegen.internal.Serialization.*;
 
 public class App {
     public static void main(String[] args) {
@@ -205,6 +209,29 @@ public class App {
                             .skipFinalSnapshot(true)
                             .build());
 
+                    var cloudwatchRole = new Role("cloudwatchRole", RoleArgs.builder()
+                            .assumeRolePolicy(serializeJson(
+                                    jsonObject(
+                                            jsonProperty("Version", "2012-10-17"),
+                                            jsonProperty("Statement", jsonArray(jsonObject(
+                                                    jsonProperty("Action", "sts:AssumeRole"),
+                                                    jsonProperty("Effect", "Allow"),
+                                                    jsonProperty("Principal", jsonObject(
+                                                            jsonProperty("Service", "ec2.amazonaws.com")
+                                                    ))
+                                            )))
+                                    )))
+                            .build());
+
+                    var cwRoleAtta = new RolePolicyAttachment("cwRoleAtta", RolePolicyAttachmentArgs.builder()
+                            .policyArn("arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy")
+                            .role(cloudwatchRole.name())
+                            .build());
+
+                    var cwProfile = new InstanceProfile("cwProfile", InstanceProfileArgs.builder()
+                            .role(cloudwatchRole.name())
+                            .build());
+
                     var userData = Output.tuple(webappdb.username(), webappdb.password(), webappdb.endpoint(), webappdb.dbName())
                             .applyValue(t -> String.format(
                                     "#!/bin/bash\n" +
@@ -212,6 +239,12 @@ public class App {
                                     "sed -i \"s|username=.*|username=%s|g\" /opt/csye6225/application.properties\n" +
                                     "sed -i \"s|password=.*|password=%s|g\" /opt/csye6225/application.properties\n" +
                                     "sed -i \"s|url=.*|url=jdbc:mysql://%s/%s?autoReconnect=true\\&useSSL=false\\&createDatabaseIfNotExist=true|g\" /opt/csye6225/application.properties\n" +
+                                    "sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \\\n" +
+                                    "    -a fetch-config \\\n" +
+                                    "    -m ec2 \\\n" +
+                                    "    -c file:/opt/cloudwatch-config.json \\\n" +
+                                    "    -s\n" +
+                                    "sudo systemctl restart amazon-cloudwatch-agent.service" +
                                     "echo \"End of UserData\"\n", t.t1, t.t2.get(), t.t3, t.t4));
 
                     var webapp = new com.pulumi.aws.ec2.Instance("webapp", com.pulumi.aws.ec2.InstanceArgs.builder()
@@ -227,7 +260,16 @@ public class App {
                                     .build())
                             .keyName(ec2Key.keyName())
                             .userData(userData)
+                            .iamInstanceProfile(cwProfile.name())
                             .tags(Map.of("Name", "webapp"))
+                            .build());
+
+                    var ARecord = new Record("A Record", RecordArgs.builder()
+                            .zoneId(config.require("zoneId"))
+                            .name(config.require("zoneName"))
+                            .type("A")
+                            .ttl(300)
+                            .records(Output.all(webapp.publicIp()))
                             .build());
                 }
             }
