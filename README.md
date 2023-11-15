@@ -12,10 +12,10 @@ export AWS_PROFILE = dev/demo
 
 - To build up resources:
 ```shell
-pulumi up
+pulumi up -y
 ```
 
 - To destroy resources:
 ```shell
-pulumi destroy
+pulumi destroy -y
 ```
