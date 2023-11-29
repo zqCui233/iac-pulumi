@@ -15,14 +15,19 @@ import com.pulumi.aws.iam.*;
 import com.pulumi.aws.inputs.GetAvailabilityZonesArgs;
 import com.pulumi.aws.lb.*;
 import com.pulumi.aws.lb.inputs.ListenerDefaultActionArgs;
+import com.pulumi.aws.ec2.KeyPair;
+import com.pulumi.aws.ec2.KeyPairArgs;
 import com.pulumi.aws.lb.inputs.TargetGroupHealthCheckArgs;
 import com.pulumi.aws.rds.InstanceArgs;
 import com.pulumi.aws.rds.*;
 import com.pulumi.aws.route53.RecordArgs;
 import com.pulumi.aws.route53.inputs.RecordAliasArgs;
+import com.pulumi.aws.sns.Topic;
 import com.pulumi.core.Output;
 import com.pulumi.aws.route53.Record;
 import com.pulumi.resources.StackReference;
+import com.pulumi.aws.iam.Role;
+import com.pulumi.aws.iam.RoleArgs;
 
 import java.util.List;
 import java.util.Map;
@@ -43,30 +48,30 @@ public class App {
                 .state("available")
                 .build());
 
-        var stackRef = new StackReference(config.require("stackName"));
+//        var stackRef = new StackReference(config.require("stackName"));
 //        var stackRef = new StackReference("organization/iac-pulumi-go/demo");
-        var mainID = stackRef.requireOutput(Output.of("main")).applyValue(String::valueOf);
-        var targetGroupArn = stackRef.requireOutput(Output.of("lbTargetGroup")).applyValue(String::valueOf);
+//        var mainID = stackRef.requireOutput(Output.of("main")).applyValue(String::valueOf);
+//        var targetGroupArn = stackRef.requireOutput(Output.of("lbTargetGroup")).applyValue(String::valueOf);
 
         Output<Integer> numOfAz = available.applyValue(getAvailabilityZonesResult -> getAvailabilityZonesResult.names().size());
 
         String cidr = config.require("vpcCidr");
         String cidrs[] = CIDRSubnetCalculator.calculate(cidr, num[0] * 2);
 
-//        var main = new Vpc("main", VpcArgs.builder()
-//                .cidrBlock(cidr)
-//                .tags(Map.of("Name", "myVpc"))
-//                .build());
+        var main = new Vpc("main", VpcArgs.builder()
+                .cidrBlock(cidr)
+                .tags(Map.of("Name", "myVpc"))
+                .build());
 
         var igw = new InternetGateway("igw", InternetGatewayArgs.builder()
-//                .vpcId(main.id())
-                .vpcId(mainID)
+                .vpcId(main.id())
+//                .vpcId(mainID)
                 .tags(Map.of("Name", "myIgw"))
                 .build());
 
         var publicRouteTable = new RouteTable("Public Route Table", RouteTableArgs.builder()
-//                .vpcId(main.id())
-                .vpcId(mainID)
+                .vpcId(main.id())
+//                .vpcId(mainID)
                 .routes(
                         RouteTableRouteArgs.builder()
                                 .cidrBlock("0.0.0.0/0")
@@ -77,8 +82,8 @@ public class App {
                 .build());
 
         var privateRouteTable = new RouteTable("Private Route Table", RouteTableArgs.builder()
-//                .vpcId(main.id())
-                .vpcId(mainID)
+                .vpcId(main.id())
+//                .vpcId(mainID)
                 .tags(Map.of("Name", "Private Route Table"))
                 .build());
 
@@ -91,8 +96,8 @@ public class App {
                         .protocol("-1")
                         .cidrBlocks("0.0.0.0/0")
                         .build())
-//                .vpcId(main.id())
-                .vpcId(mainID)
+                .vpcId(main.id())
+//                .vpcId(mainID)
                 .tags(Map.of("Name", "Load Balance Security Group"))
                 .build());
 
@@ -117,8 +122,8 @@ public class App {
         var applicationSecurityGroup = new SecurityGroup("appSG", SecurityGroupArgs.builder()
                 .description("Allow inbound traffic")
                 .namePrefix("application-")
-//                .vpcId(main.id())
-                .vpcId(mainID)
+                .vpcId(main.id())
+//                .vpcId(mainID)
 //                .ingress(SecurityGroupIngressArgs.builder()
 //                        .fromPort(8080)
 //                        .toPort(8080)
@@ -175,8 +180,8 @@ public class App {
         var databaseSecurityGroup = new SecurityGroup("dbSG", SecurityGroupArgs.builder()
                 .description("Enable access to RDS Instance")
                 .namePrefix("database-")
-//                .vpcId(main.id())
-                .vpcId(mainID)
+                .vpcId(main.id())
+//                .vpcId(mainID)
                 .tags(Map.of("Name", "Database Security Group"))
                 .build());
 
@@ -198,6 +203,8 @@ public class App {
                 .family("mysql8.0")
                 .build());
 
+        var topic = new Topic("myTopic");
+
         numOfAz.applyValue(n -> {
             if (n >= 3) num[0] = 3;
             else num[0] = n;
@@ -207,8 +214,8 @@ public class App {
             for (int i = 0; i < num[0]; i++, index[0]++) {
                 int finalIndex = index[0];
                 publicSubnet[i] = new Subnet("Public Subnet " + (i + 1), new SubnetArgs.Builder()
-//                        .vpcId(main.id())
-                        .vpcId(mainID)
+                        .vpcId(main.id())
+//                        .vpcId(mainID)
                         .cidrBlock(cidrs[i])
                         .availabilityZone(available.applyValue(getAvailabilityZonesResult -> getAvailabilityZonesResult.names().get(finalIndex)))
                         .tags(Map.of("Name", "Public Subnet " + (i + 1)))
@@ -220,8 +227,8 @@ public class App {
                         .build());
 
                 privateSubnet[i] = new Subnet("Private Subnet " + (i + 1), new SubnetArgs.Builder()
-//                        .vpcId(main.id())
-                        .vpcId(mainID)
+                        .vpcId(main.id())
+//                        .vpcId(mainID)
                         .cidrBlock(cidrs[i + num[0]])
                         .availabilityZone(available.applyValue(getAvailabilityZonesResult -> getAvailabilityZonesResult.names().get(finalIndex)))
                         .tags(Map.of("Name", "Private Subnet " + (i + 1)))
@@ -300,10 +307,11 @@ public class App {
                             .role(cloudwatchRole.name())
                             .build());
 
-                    var userData = Output.tuple(webappdb.username(), webappdb.password(), webappdb.endpoint(), webappdb.dbName())
+                    var userData = Output.tuple(topic.arn(), webappdb.username(), webappdb.password(), webappdb.endpoint(), webappdb.dbName())
                             .applyValue(t -> String.format(
                                     "#!/bin/bash\n" +
                                     "echo \"setup RDS endpoint\"\n" +
+                                    "sed -i \"s|aws.topic.arn=.*|aws.topic.arn=%s|g\" /opt/csye6225/application.properties\n" +
                                     "sed -i \"s|username=.*|username=%s|g\" /opt/csye6225/application.properties\n" +
                                     "sed -i \"s|password=.*|password=%s|g\" /opt/csye6225/application.properties\n" +
                                     "sed -i \"s|url=.*|url=jdbc:mysql://%s/%s?autoReconnect=true\\&useSSL=false\\&createDatabaseIfNotExist=true|g\" /opt/csye6225/application.properties\n" +
@@ -313,7 +321,7 @@ public class App {
                                     "    -c file:/opt/cloudwatch-config.json \\\n" +
                                     "    -s\n" +
                                     "sudo systemctl restart amazon-cloudwatch-agent.service" +
-                                    "echo \"End of UserData\"\n", t.t1, t.t2.get(), t.t3, t.t4));
+                                    "echo \"End of UserData\"\n", t.t1, t.t2, t.t3.get(), t.t4, t.t5));
 
 //                    var webapp = new com.pulumi.aws.ec2.Instance("webapp", com.pulumi.aws.ec2.InstanceArgs.builder()
 //                            .ami(config.require("amiId"))
@@ -348,19 +356,19 @@ public class App {
                                     .build())
                             .build());
 
-//                    var targetGroup = new TargetGroup("lbTargetGroup", TargetGroupArgs.builder()
-//                            .targetType("instance")
-//                            .name("lbTargetGroup")
-//                            .port(8080)
-//                            .protocol("HTTP")
-//                            .vpcId(main.id())
-//                            .healthCheck(TargetGroupHealthCheckArgs.builder()
-//                                    .port("8080")
-//                                    .protocol("HTTP")
-//                                    .path("/healthz")
-//                                    .matcher("200")
-//                                    .build())
-//                            .build());
+                    var targetGroup = new TargetGroup("lbTargetGroup", TargetGroupArgs.builder()
+                            .targetType("instance")
+                            .name("lbTargetGroup")
+                            .port(8080)
+                            .protocol("HTTP")
+                            .vpcId(main.id())
+                            .healthCheck(TargetGroupHealthCheckArgs.builder()
+                                    .port("8080")
+                                    .protocol("HTTP")
+                                    .path("/healthz")
+                                    .matcher("200")
+                                    .build())
+                            .build());
 
                     var autoScalingGroup = new com.pulumi.aws.autoscaling.Group("asGroup", GroupArgs.builder()
                             .defaultCooldown(60)
@@ -368,8 +376,8 @@ public class App {
                             .maxSize(3)
                             .minSize(1)
                             .desiredCapacity(1)
-//                            .targetGroupArns(Output.all(targetGroup.arn()))
-                            .targetGroupArns(Output.all(targetGroupArn))
+                            .targetGroupArns(Output.all(targetGroup.arn()))
+//                            .targetGroupArns(Output.all(targetGroupArn))
                             .vpcZoneIdentifiers(publicIds)
                             .tags(GroupTagArgs.builder()
                                     .key("Name")
@@ -426,8 +434,8 @@ public class App {
                             .protocol("HTTP")
                             .defaultActions(ListenerDefaultActionArgs.builder()
                                     .type("forward")
-                                    .targetGroupArn(targetGroupArn)
-//                                    .targetGroupArn(targetGroup.arn())
+//                                    .targetGroupArn(targetGroupArn)
+                                    .targetGroupArn(targetGroup.arn())
                                     .build())
                             .build());
 
