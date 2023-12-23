@@ -2,6 +2,7 @@ package myproject;
 
 import com.pulumi.Context;
 import com.pulumi.Pulumi;
+import com.pulumi.asset.FileAsset;
 import com.pulumi.aws.AwsFunctions;
 import com.pulumi.aws.autoscaling.GroupArgs;
 import com.pulumi.aws.autoscaling.Policy;
@@ -9,10 +10,19 @@ import com.pulumi.aws.autoscaling.PolicyArgs;
 import com.pulumi.aws.autoscaling.inputs.GroupTagArgs;
 import com.pulumi.aws.cloudwatch.MetricAlarm;
 import com.pulumi.aws.cloudwatch.MetricAlarmArgs;
+import com.pulumi.aws.dynamodb.Table;
+import com.pulumi.aws.dynamodb.TableArgs;
+import com.pulumi.aws.dynamodb.inputs.TableAttributeArgs;
 import com.pulumi.aws.ec2.*;
 import com.pulumi.aws.ec2.inputs.*;
 import com.pulumi.aws.iam.*;
+import com.pulumi.aws.iam.inputs.GetPolicyDocumentArgs;
+import com.pulumi.aws.iam.inputs.GetPolicyDocumentStatementArgs;
+import com.pulumi.aws.iam.inputs.GetPolicyDocumentStatementPrincipalArgs;
 import com.pulumi.aws.inputs.GetAvailabilityZonesArgs;
+import com.pulumi.aws.kms.KeyArgs;
+import com.pulumi.aws.lambda.*;
+import com.pulumi.aws.lambda.inputs.FunctionEnvironmentArgs;
 import com.pulumi.aws.lb.*;
 import com.pulumi.aws.lb.inputs.ListenerDefaultActionArgs;
 import com.pulumi.aws.ec2.KeyPair;
@@ -22,13 +32,24 @@ import com.pulumi.aws.rds.InstanceArgs;
 import com.pulumi.aws.rds.*;
 import com.pulumi.aws.route53.RecordArgs;
 import com.pulumi.aws.route53.inputs.RecordAliasArgs;
+import com.pulumi.aws.s3.*;
 import com.pulumi.aws.sns.Topic;
+import com.pulumi.aws.sns.TopicArgs;
+import com.pulumi.aws.sns.TopicSubscription;
+import com.pulumi.aws.sns.TopicSubscriptionArgs;
 import com.pulumi.core.Output;
 import com.pulumi.aws.route53.Record;
+import com.pulumi.gcp.serviceAccount.IAMBinding;
+import com.pulumi.gcp.serviceAccount.IAMBindingArgs;
+import com.pulumi.gcp.storage.BucketIAMBinding;
+import com.pulumi.gcp.storage.BucketIAMBindingArgs;
 import com.pulumi.resources.StackReference;
 import com.pulumi.aws.iam.Role;
 import com.pulumi.aws.iam.RoleArgs;
 
+import java.awt.*;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -203,8 +224,6 @@ public class App {
                 .family("mysql8.0")
                 .build());
 
-        var topic = new Topic("myTopic");
-
         numOfAz.applyValue(n -> {
             if (n >= 3) num[0] = 3;
             else num[0] = n;
@@ -259,10 +278,11 @@ public class App {
                             break;
                         }
                         default: {
+                            System.out.println("ERROR MSG");
                             System.exit(-1);
                         }
                     }
-                    
+
                     var dbSubnetGroup = new SubnetGroup("db-sg", SubnetGroupArgs.builder()
                             .subnetIds(privateIds)
                             .tags(Map.of("Name", "My DB subnet group"))
@@ -284,7 +304,7 @@ public class App {
                             .skipFinalSnapshot(true)
                             .build());
 
-                    var cloudwatchRole = new Role("cloudwatchRole", RoleArgs.builder()
+                    var instanceRole = new Role("instanceRole", RoleArgs.builder()
                             .assumeRolePolicy(serializeJson(
                                     jsonObject(
                                             jsonProperty("Version", "2012-10-17"),
@@ -300,28 +320,182 @@ public class App {
 
                     var cwRoleAtta = new RolePolicyAttachment("cwRoleAtta", RolePolicyAttachmentArgs.builder()
                             .policyArn("arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy")
-                            .role(cloudwatchRole.name())
+                            .role(instanceRole.name())
                             .build());
 
+                    var snsPublish = new RolePolicyAttachment("SNSPublishPolicy",
+                            RolePolicyAttachmentArgs.builder().role(instanceRole.name())
+                                    .policyArn("arn:aws:iam::aws:policy/AmazonSNSFullAccess")
+                                    .build());
+
+                    var lambdaRolePolicy = new RolePolicyAttachment("AWSLambdaRolePolicy",
+                            RolePolicyAttachmentArgs.builder().role(instanceRole.name())
+                                    .policyArn("arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole")
+                                    .build());
+
                     var cwProfile = new InstanceProfile("cwProfile", InstanceProfileArgs.builder()
-                            .role(cloudwatchRole.name())
+                            .role(instanceRole.name())
                             .build());
+
+                    var topic = new Topic("myTopic", TopicArgs.builder()
+                            .displayName("myTopic")
+                            .build());
+
+                    var gcpBucket = com.pulumi.gcp.storage.Bucket.get("existingBucket",
+                            Output.of(config.require("bucket")), null, null);
+
+                    var gcpAccount = new com.pulumi.gcp.serviceAccount.Account(
+                            "myServiceAccount", com.pulumi.gcp.serviceAccount.AccountArgs.builder()
+                            .project(config.require("project"))
+                            .accountId(config.require("project"))
+                            .build());
+
+                    var gcpKey = new com.pulumi.gcp.serviceAccount.Key(
+                            "myServiceAccountKey", com.pulumi.gcp.serviceAccount.KeyArgs.builder()
+                            .serviceAccountId(gcpAccount.name())
+                            .build());
+
+                    var bucketAdminBinding = new BucketIAMBinding("bucketAdminBinding", BucketIAMBindingArgs.builder()
+                            .bucket(gcpBucket.name()) // Replace with the actual bucket name or reference
+                            .role("roles/storage.objectAdmin")
+                            .members("allAuthenticatedUsers")
+                            .build());
+
+//                    var serviceAccountBinding = new IAMBinding("serviceAccountBinding", IAMBindingArgs.builder()
+//                            .serviceAccountId(gcpAccount.name())
+//                            .role("roles/storage.objectAdmin")
+//                            .members("user:cuizhiqing110@gmail.com")
+//                            .build());
+
+                    List<String> permissions = new ArrayList<>();
+                    permissions.add("cloudfunctions.functions.invoke");
+
+                    var gcpRole = new com.pulumi.gcp.projects.IAMCustomRole("gcpRole",
+                            com.pulumi.gcp.projects.IAMCustomRoleArgs.builder()
+                                    .roleId("myapplambdarole")
+                                    .project(config.require("project"))
+                                    .title("LambdaRole")
+                                    .description("IAM role for lambda Function")
+                                    .permissions(Output.of(permissions))
+                                    .build());
+
+                    var dynamoDBTable = new Table("myDynamoDBTable", TableArgs.builder()
+                            .name("DynamoTable")
+                            .attributes(TableAttributeArgs.builder()
+                                    .name("ID")
+                                    .type("S")
+                                    .build())
+                            .hashKey("ID")
+                            .billingMode("PAY_PER_REQUEST")
+                            .build());
+
+                    var lambdaRole = new Role("lambdaRole", RoleArgs.builder()
+                            .assumeRolePolicy(
+                                    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Action\":\"sts:AssumeRole\",\"Principal\":{\"Service\":\"lambda.amazonaws.com\"},\"Effect\":\"Allow\"}]}")
+                            .build());
+
+                    var policyAttachment = new RolePolicyAttachment("policyAttachment", RolePolicyAttachmentArgs.builder()
+                            .role(lambdaRole.name())
+                            .policyArn("arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole")
+                            .build());
+
+                    var snsPublish1 = new RolePolicyAttachment("SNSPublishPolicyLambda",
+                            RolePolicyAttachmentArgs.builder().role(lambdaRole.name())
+                                    .policyArn("arn:aws:iam::aws:policy/AmazonSNSFullAccess")
+                                    .build());
+
+                    var cloudWatchPolicyLambda = new RolePolicyAttachment("CloudWatchPolicyLambda",
+                            RolePolicyAttachmentArgs.builder().role(lambdaRole.name())
+                                    .policyArn("arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy")
+                                    .build());
+
+                    var dynamoDBPolicy = new RolePolicyAttachment("dynamoDBPolicy",
+                            RolePolicyAttachmentArgs.builder().role(lambdaRole.name())
+                                    .policyArn("arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess")
+                                    .build());
+
+//                    var lambdaFunction = new com.pulumi.gcp.cloudfunctions.Function("lambdaFunction", com.pulumi.gcp.cloudfunctions.FunctionArgs.builder()
+//                            .project(config.require("project"))
+//                            .region("us-east1")
+//                            .runtime("java17")
+//                            .httpsTriggerUrl("https://github.com/zqCui233/serverless.git")
+//                            .sourceArchiveBucket(gcpBucket.name())
+//                            .sourceArchiveObject("/Users/cuizhiqing/Desktop/serverless.zip")
+//                            .entryPoint("Lambda.java")
+//                            .triggerHttp(true)
+//                            .build());
+
+                    Output<String> dynamoDBTableOutput = dynamoDBTable.name().applyValue(ids -> ids);
+                    Output<String> KeyOutput = gcpKey.privateKey().applyValue(ids -> ids);
+                    Output<String> snsTopicOutput = topic.arn().applyValue(ids -> ids);
+
+                    Output<Map<String, String>> environment = KeyOutput.apply(skey -> dynamoDBTableOutput
+                            .apply(dynamodb -> snsTopicOutput.applyValue(topicArn -> {
+                                Map<String, String> e = new HashMap<>();
+                                e.put("GOOGLE_ACCESS_KEY", skey);
+                                e.put("BUCKET_NAME", config.require("bucket"));
+                                e.put("SNS_TOPIC_ARN", topicArn);
+                                e.put("MAILGUN_APIKEY", "71c34845893e6d38466738d23112d328-0a688b4a-94d0707f");
+                                e.put("DOMAIN", "cuizhiqing.me");
+                                e.put("dynamoTable", dynamodb);
+
+                                return e;
+                            })));
+
+//                    var fileArchive = new com.pulumi.asset.FileArchive("/Users/cuizhiqing/Desktop/serverless.zip");
+                    var fileArchive = new com.pulumi.asset.FileArchive("/Users/cuizhiqing/Desktop/serverless/target/lambda-1.0-SNAPSHOT.jar");
+
+                    var bucket = new Bucket("bucket", BucketArgs.builder()
+                            .acl("private")
+                            .build());
+
+                    var bucketObject = new BucketObject("object", BucketObjectArgs.builder()
+                            .bucket(bucket.id())
+                            .source(fileArchive)
+                            .build());
+
+                    var lambdaFunction1 = new Function("LambdaFunction1", FunctionArgs.builder()
+                            .runtime("java17")
+                            .packageType("Zip")
+                            .role(lambdaRole.arn())
+                            .s3Bucket(bucket.id())
+                            .s3Key(bucketObject.key())
+                            .handler("com.neu.csye6225.Lambda::handleRequest")
+                            .environment(FunctionEnvironmentArgs.builder()
+                                    .variables(environment)
+                                    .build())
+                            .timeout(60)
+                            .build());
+
+                    var snsSubscription = new TopicSubscription("snsSubscription", TopicSubscriptionArgs.builder()
+                            .endpoint(lambdaFunction1.arn())
+                            .protocol("lambda")
+                            .topic(topic.arn())
+                            .build());
+
+                    var lambdaPermission = new Permission("lambdaPermission",
+                            PermissionArgs.builder()
+                                    .action("lambda:InvokeFunction")
+                                    .function(lambdaFunction1.arn())
+                                    .principal("sns.amazonaws.com")
+                                    .sourceArn(topic.arn())
+                                    .build());
 
                     var userData = Output.tuple(topic.arn(), webappdb.username(), webappdb.password(), webappdb.endpoint(), webappdb.dbName())
                             .applyValue(t -> String.format(
                                     "#!/bin/bash\n" +
-                                    "echo \"setup RDS endpoint\"\n" +
-                                    "sed -i \"s|aws.topic.arn=.*|aws.topic.arn=%s|g\" /opt/csye6225/application.properties\n" +
-                                    "sed -i \"s|username=.*|username=%s|g\" /opt/csye6225/application.properties\n" +
-                                    "sed -i \"s|password=.*|password=%s|g\" /opt/csye6225/application.properties\n" +
-                                    "sed -i \"s|url=.*|url=jdbc:mysql://%s/%s?autoReconnect=true\\&useSSL=false\\&createDatabaseIfNotExist=true|g\" /opt/csye6225/application.properties\n" +
-                                    "sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \\\n" +
-                                    "    -a fetch-config \\\n" +
-                                    "    -m ec2 \\\n" +
-                                    "    -c file:/opt/cloudwatch-config.json \\\n" +
-                                    "    -s\n" +
-                                    "sudo systemctl restart amazon-cloudwatch-agent.service" +
-                                    "echo \"End of UserData\"\n", t.t1, t.t2, t.t3.get(), t.t4, t.t5));
+                                            "echo \"setup RDS endpoint\"\n" +
+                                            "sed -i \"s|aws.topic.arn=.*|aws.topic.arn=%s|g\" /opt/csye6225/application.properties\n" +
+                                            "sed -i \"s|username=.*|username=%s|g\" /opt/csye6225/application.properties\n" +
+                                            "sed -i \"s|password=.*|password=%s|g\" /opt/csye6225/application.properties\n" +
+                                            "sed -i \"s|url=.*|url=jdbc:mysql://%s/%s?autoReconnect=true\\&useSSL=false\\&createDatabaseIfNotExist=true|g\" /opt/csye6225/application.properties\n" +
+                                            "sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \\\n" +
+                                            "    -a fetch-config \\\n" +
+                                            "    -m ec2 \\\n" +
+                                            "    -c file:/opt/cloudwatch-config.json \\\n" +
+                                            "    -s\n" +
+                                            "sudo systemctl restart amazon-cloudwatch-agent.service" +
+                                            "echo \"End of UserData\"\n", t.t1, t.t2, t.t3.get(), t.t4, t.t5));
 
 //                    var webapp = new com.pulumi.aws.ec2.Instance("webapp", com.pulumi.aws.ec2.InstanceArgs.builder()
 //                            .ami(config.require("amiId"))
