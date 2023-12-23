@@ -1,10 +1,12 @@
 encryptionsalt: v1:LiRHi80C270=:v1:lFVxLWwwVwqXQO5D:qQzMp07HGOqVXFMLFVQilvP4XTUXzA==
 config:
   #  aws:profile: demo
-  aws:region: us-east-1
+  aws:region: "us-east-1"
   vpcCidr: "10.0.0.0/16"
-  amiId: "ami-0e4e3ae96b32be122"
+  project: "csye6225-demo-406620"
+  bucket: "czq-csye6225-bucket2"
+  amiId: "ami-07c7696556f123e77"
   pubKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDhg/UEg4wACDnoqmDa8L7DIRwma7FeM0zZ49/UoQ0RL9M2NdncVHJ8C/n0lgZ7okvuYbQTiQoDpvxbkTZ1JbrNQKYGLvw5htADnNqHLg5+iMTJMEC7Ci8KdUjAdEFuwABV1JxogBcWQ2rFrEjtjOUFF5rGvj+/yUe0eFppYG6YqdkU5oFRtOB89+pikzN1sj2srJGaklYVRpno40jRC2bWpNkORWS8UWg1WuraeOYz/TSIWms/4H5FLnYZV4K3hHKHUW9gLJfxzRD76f1R73W3az8DEPHpPYq1L+RhqQbF64UhRDLML9CvAc0yYeIGESPF3lvgQLRKQJerwW1YyptSqLhcUOPkTHOnbtZZLz4ixPtEu32RMhVSr4XTWTqhAkpe2CEPs/OGI1jGvKckg+iKNQZuAZV11xQumgCTGOt7/Uvf22vZRUcFwVXkYl+16zZmQqZhQNSGYhl+mRPB0cBIQ8wkGzCKNTkVI3AYiU5Cn1RgaEDPjUxiL7LORg3uIQ0= cuizhiqing@cuizhiqingdeMacBook-Pro.local"
   zoneId: "Z00436101C057V4YXVV7B"
   zoneName: "demo.cuizhiqing.me"
-  stackName: "organization/iac-pulumi-go/demo"
+  email: "cuizhiqing110@gmail.com"

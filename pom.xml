@@ -30,6 +30,12 @@
             <version>6.1.0</version>
         </dependency>
         <dependency>
+            <groupId>com.pulumi</groupId>
+            <artifactId>gcp</artifactId>
+            <version>6.67.0</version>
+        </dependency>
+
+        <dependency>
             <groupId>commons-net</groupId>
             <artifactId>commons-net</artifactId>
             <version>3.10.0</version>
