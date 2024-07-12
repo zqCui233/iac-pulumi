@@ -435,7 +435,7 @@ public class App {
                                 e.put("GOOGLE_ACCESS_KEY", skey);
                                 e.put("BUCKET_NAME", config.require("bucket"));
                                 e.put("SNS_TOPIC_ARN", topicArn);
-                                e.put("MAILGUN_APIKEY", "71c34845893e6d38466738d23112d328-0a688b4a-94d0707f");
+                                e.put("MAILGUN_APIKEY", "<your-api-key>");
                                 e.put("DOMAIN", "cuizhiqing.me");
                                 e.put("dynamoTable", dynamodb);
 
